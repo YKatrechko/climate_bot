@@ -33,8 +33,8 @@
 #include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
 
 //ds18b20
-#include <OneWire.h>
-#include <DallasTemperature.h>
+//#include <OneWire.h>
+//#include <DallasTemperature.h>
 //dht22
 #include <SimpleDHT.h>            // https://github.com/winlinvip/SimpleDHT
 //mqtt
@@ -42,39 +42,38 @@
 //telegram
 #include <UniversalTelegramBot.h> // https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot
 
+//#include "DHT.h"
+//DHT dht11;
 
 //pin definitions
 const byte DHTPIN = D5;  // Pin which is connected to the DHT sensor.
+const int buzzerPIN = D6;
 //const byte EN_deepsleep = D6;
 //library variables
 const int maxaddr = 0x4A;
 int Bot_mtbs = 1000; //mean time between scan messages //1000
-long lastBOT;   //last time messages' scan has been done
+long lastBOT;   //last time messages scan has been done
 
 //other library stuff
 WiFiClient espClient;
-PubSubClient mclient(espClient);
-//SimpleDHT22 dht22;
-SimpleDHT11 dht11;
+
+SimpleDHT22 dht22;
 WiFiClientSecure bclient;
 UniversalTelegramBot *bot;
 
-//OneWire oneWire(DHTPIN);
-//// Pass our oneWire reference to Dallas Temperature.
-//DallasTemperature DS18B20(&oneWire);
-
-
 //program variables
-//const word MQTT_INTERVAL = 15000;
-const word LTH_INTERVAL = 2500;
+const word MQTT_INTERVAL = 30000;
+const word LTH_INTERVAL = 5000;
 const byte authNumber = 10;
 word lowvoltage = 3300;
 byte preReq, lowvoltagesent;
-long lastLTH, lastMC;
+long lastMQTT, lastLTH, lastMC;
 word updateID = 1, vin[3] = {6000, 0, 0};
 //min, current, max
 float temperature[3] = {420, -127, -127};
 float humidity[3] = {420, -127, -127};
+char notes_alarm[] = "eeeee";
+char notes_boot[] = "c";
 
 //user struct. "id" is loaded from eeprom
 struct authObj {
@@ -103,25 +102,29 @@ confObj conf = {
   "xx"
 };
 
+
+
 void setup() {
   //pinMode(EN_deepsleep, INPUT_PULLUP);
+  pinMode(buzzerPIN, OUTPUT);
+
   Serial.begin(115200);
 
   eeprom_read_settings();
 
-//  delay(10);
-//  DS18B20.begin();
+  //  delay(10);
+  //  DS18B20.begin();
+
+  //dht11.setup(DHTPIN);
 
   wifi_init();
+  play(notes_boot);
 
   //safe config
   eeprom_save_settings();
 
-  //bot
   bot = new UniversalTelegramBot(conf.BOTtoken, bclient);
 }
-
-
 
 void loop() {
   String msg;
@@ -130,11 +133,11 @@ void loop() {
     lastLTH = millis();
     preReq++;
 
-    Serial.print("lt");
-    getdht11();
+    Serial.println("reading...");
+    getdht22();
     //getds18();
 
-    vin[1] = analogRead(A0) * 5.546;
+    vin[1] = analogRead(A0)* 4.35;
     //min max storage
     if (temperature[1] < temperature[0]) {
       temperature[0] = temperature[1];
@@ -154,7 +157,7 @@ void loop() {
     if (vin[1] > vin[2]) {
       vin[2] = vin[1];
     }
-    Serial.print("h ");
+    Serial.println("checking...");
 
     //low voltage alarm
     if ((vin[1] < lowvoltage) && (!lowvoltagesent)) {
@@ -168,105 +171,32 @@ void loop() {
         }
       }
     }
-
-    //alarm notifications
-    for (byte j = 0; j < authNumber; j++) {
-      //user threshold alarms
-      if (auth[j].TD == 2) {
-        if (auth[j].TT < temperature[1]) {
-          auth[j].TD = 0;
-          EEPROM.write(100 + (42 * j) + 21, 0);
-          EEPROM.commit();
-          msg = "The Temperature reached:\n";
-          msg += String(auth[j].TT) + " �C\n";
-          bot->sendMessage(auth[j].id, msg, "");
-          bot->sendMessage(auth[j].id, SState(), "");  //send status
-        }
-      }
-      if (auth[j].TD == 1) {
-        if (auth[j].TT > temperature[1]) {
-          auth[j].TD = 0;
-          EEPROM.write(100 + (42 * j) + 21, 0);
-          EEPROM.commit();
-          msg = "The Temperature reached:\n";
-          msg += String(auth[j].TT) + " �C\n";
-          bot->sendMessage(auth[j].id, msg, "");
-          bot->sendMessage(auth[j].id, SState(), "");  //send status
-        }
-      }
-      if (auth[j].RHD == 2) {
-        if (auth[j].RHT < humidity[1]) {
-          auth[j].RHD = 0;
-          EEPROM.write(100 + (42 * j) + 26, 0);
-          EEPROM.commit();
-          msg = "The Humidity reached:\n";
-          msg += String(auth[j].RHT) + " RH%\n";
-          bot->sendMessage(auth[j].id, msg, "");
-          bot->sendMessage(auth[j].id, SState(), "");  //send status
-        }
-      }
-      if (auth[j].RHD == 1) {
-        if (auth[j].RHT > humidity[1]) {
-          auth[j].RHD = 0;
-          EEPROM.write(100 + (42 * j) + 26, 0);
-          EEPROM.commit();
-          msg = "The Humidity reached:\n";
-          msg += String(auth[j].RHT) + " RH%\n";
-          bot->sendMessage(auth[j].id, msg, "");
-          bot->sendMessage(auth[j].id, SState(), "");  //send status
-        }
-      }
-      if (auth[j].vinD == 2) {
-        if (auth[j].vinT < vin[1]) {
-          auth[j].vinD = 0;
-          EEPROM.write(100 + (42 * j) + 36, 0);
-          EEPROM.commit();
-          msg = "The Supply Voltage reached:\n";
-          msg += String(auth[j].vinT) + " mV\n";
-          bot->sendMessage(auth[j].id, msg, "");
-          bot->sendMessage(auth[j].id, SState(), "");  //send status
-        }
-      }
-      if (auth[j].vinD == 1) {
-        if (auth[j].vinT > vin[1]) {
-          auth[j].vinD = 0;
-          EEPROM.write(100 + (42 * j) + 36, 0);
-          EEPROM.commit();
-          msg = "The Supply Voltage reached:\n";
-          msg += String(auth[j].vinT) + " mV\n";
-          bot->sendMessage(auth[j].id, msg, "");
-          bot->sendMessage(auth[j].id, SState(), "");  //send status
-        }
-      }
-    }
+    msg = alarm_notifications();
   }
+  
+  if (((millis() - lastMQTT) > MQTT_INTERVAL) && (preReq >= 2)) {  //
+    lastMQTT = millis();
+    preReq = 0;
 
-//  if (((millis() - lastMQTT) > MQTT_INTERVAL) && (preReq >= 2)) {  //
-//    lastMQTT = millis();
-//    preReq = 0;
-//
-//    Serial.print("DHT11 Values: ");
-//    Serial.print((float)temperature[1]); Serial.print(" �C, ");
-//    Serial.print((float)humidity[1]); Serial.println(" RH%");
-//    Serial.println("Vin: " + String(vin[1]) + "mV");
-//  }
+    Serial.print("DHT Values: ");
+    Serial.print((float)temperature[1]); Serial.print(" °C, ");
+    Serial.print((float)humidity[1]); Serial.println(" RH%");
+    Serial.println("Vin: " + String(vin[1]) + "mV");
+  }
 
   if (millis() > lastBOT + Bot_mtbs)  {
     int numNewMessages = bot->getUpdates(bot->last_message_received + 1);
-
     while (numNewMessages) {
       Serial.println("got response");
       handleNewMessages(numNewMessages);
       numNewMessages = bot->getUpdates(bot->last_message_received + 1);
     }
-
     lastBOT = millis();
   }
-
   //check for millis overflow
-//  if (millis() < lastMQTT) {
-//    lastMQTT = millis();
-//  }
+  if (millis() < lastMQTT) {
+    lastMQTT = millis();
+  }
   if (millis() < lastLTH) {
     lastLTH = millis();
   }

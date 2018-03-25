@@ -1,3 +1,34 @@
+int tempo = 200;
+int duration[] = {1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2};
+
+void playTheShit(char note, int duration) {
+  char notesName[] = { 'c', 'd', 'e', 'f', 'g' };
+  int tones[] = { 261, 293, 329, 349, 392 };
+
+  for (int i = 0; i < sizeof(tones); i++) {
+    // Bind the note took from the char array to the array notesName
+    if (note == notesName[i]) {
+      // Bind the notesName to tones
+      tone(buzzerPIN, tones[i], duration);
+    }
+  }
+}
+
+void play(char notes[]) {
+  // Scan each char from "notes"
+  for (int i = 0; i < sizeof(notes) - 1; i++) {
+    if (notes[i] == ' ') {
+      // If find a space it rests
+      delay(duration[i] * tempo);
+    } else {
+      playTheShit(notes[i], duration[i] * tempo);
+    }
+    // Pauses between notes
+    delay((tempo * 2)*duration[i]);
+  }
+  noTone(buzzerPIN);
+}
+
 
 void wifi_init() {
   //WiFiManager
@@ -9,10 +40,6 @@ void wifi_init() {
   wifiManager.setTimeout(180);
 
   // id/name, placeholder/prompt, default, length
-  WiFiManagerParameter custom_mqtt_server("server", "mqtt server", conf.mqtt_server, 39);
-  wifiManager.addParameter(&custom_mqtt_server);
-  WiFiManagerParameter custom_mqtt_port("port", "mqtt port", conf.mqtt_port, 5);
-  wifiManager.addParameter(&custom_mqtt_port);
   WiFiManagerParameter custom_bot_token("token", "telegram bot token", conf.BOTtoken, 46);
   wifiManager.addParameter(&custom_bot_token);
 
@@ -25,8 +52,7 @@ void wifi_init() {
     delay(5000);
   }
   //if you get here you have connected to the WiFi
-  Serial.println("wifi connected...");
-
+  Serial.println("wifi connected!");
 }
 
 void eeprom_read_settings() {
@@ -42,7 +68,6 @@ void eeprom_read_settings() {
     for (byte j = 0; j < authNumber; j++) {
       for (byte i = 0; i < 17; ++i) {
         char tmp = char(EEPROM.read(100 + (42 * j) + i));
-
         if ((tmp == '\0') || (tmp == 255)) {
           i = 17;
         }
@@ -81,49 +106,24 @@ void eeprom_save_settings() {
   EEPROM.commit();
 }
 
-
-
-void getdht11() {
+void getdht22() {
   temperature[1] = -127;
   humidity[1] = -127;
-  //  byte temperature = 0;
-  //  byte humidity = 0;
   int err = SimpleDHTErrSuccess;
-  if ((err = dht11.read2(DHTPIN, &temperature[1], &humidity[1], NULL)) != SimpleDHTErrSuccess) {
-    Serial.print("Read DHT11 failed, err="); Serial.println(err);
+  if ((err = dht22.read2(DHTPIN, &temperature[1], &humidity[1], NULL)) != SimpleDHTErrSuccess) {
+    Serial.print("Read DHT22 failed, err="); Serial.println(err);
   }
 }
-
-//void getdht22() {
-//  temperature[1] = -127;
-//  humidity[1] = -127;
-//  int err = SimpleDHTErrSuccess;
-//  if ((err = dht22.read2(DHTPIN, &temperature[1], &humidity[1], NULL)) != SimpleDHTErrSuccess) {
-//    Serial.print("Read DHT22 failed, err="); Serial.println(err);
-//  }
-//}
-
-//void getds18() {
-//  float tempC;
-//  do {
-//    DS18B20.requestTemperatures();
-//    tempC = DS18B20.getTempCByIndex(0);
-//    delay(100);
-//  } while (tempC == 85.0 || tempC == (-127.0));
-//  temperature[1] = tempC;
-//}
-
-
 
 //////////////////////
 
 String SState() {
   //String msg = "ESP sensor bot\n";
   String msg = "This is demm_bot.\n";
-  msg += "Temperature: " + String(temperature[1]) + " �C\n";
+  msg += "Temperature: " + String(temperature[1]) + " °C\n";
   msg += "Relative Humidity: " + String(humidity[1]) + " RH%\n";
-  msg += "Min:\n" + String(temperature[0]) + "�C " + String(humidity[0]) + "RH% \n";
-  msg += "Max:\n" + String(temperature[2]) + "�C " + String(humidity[2]) + "RH% \n";
+  msg += "Min:\n" + String(temperature[0]) + " °C " + String(humidity[0]) + "RH% \n";
+  msg += "Max:\n" + String(temperature[2]) + " °C " + String(humidity[2]) + "RH% \n";
   return msg;
 }
 
@@ -249,7 +249,7 @@ void handleNewMessages(int numNewMessages) {
         for (byte j = 0; j < authNumber; j++) {
           if (chat_id == auth[j].id) {
             if (auth[j].TD) {
-              msg += "T: " + String(auth[j].TT) + " �C (" + String(auth[j].TD) + ")\n";
+              msg += "T: " + String(auth[j].TT) + " °C (" + String(auth[j].TD) + ")\n";
             }
             if (auth[j].RHD) {
               msg += "RH: " + String(auth[j].RHT) + " RH% (" + String(auth[j].RHD) + ")\n";
@@ -302,7 +302,7 @@ void handleNewMessages(int numNewMessages) {
                 auth[j].TD = 1;
                 msg = "I will notify you once the Temperature drops to:\n";
               }
-              msg += String(auth[j].TT) + " �C";
+              msg += String(auth[j].TT) + " °C";
               bot->sendMessage(chat_id, msg, "");
             } else {
               auth[j].TD = 0;
@@ -377,3 +377,83 @@ void handleNewMessages(int numNewMessages) {
     }
   }
 }
+
+String alarm_notifications() {
+  String msg;
+  //alarm notifications
+  for (byte j = 0; j < authNumber; j++) {
+    //user threshold alarms
+    if (auth[j].TD == 2) {
+      if (auth[j].TT < temperature[1]) {
+        //        auth[j].TD = 0;
+        //          EEPROM.write(100 + (42 * j) + 21, 0);
+        //          EEPROM.commit();
+        msg = "The Temperature reached:\n";
+        msg += String(auth[j].TT) + " °C\n";
+        bot->sendMessage(auth[j].id, msg, "");
+        bot->sendMessage(auth[j].id, SState(), "");  //send status
+        play(notes_alarm);
+      }
+    }
+    if (auth[j].TD == 1) {
+      if (auth[j].TT > temperature[1]) {
+        //        auth[j].TD = 0;
+        //          EEPROM.write(100 + (42 * j) + 21, 0);
+        //          EEPROM.commit();
+        msg = "The Temperature reached:\n";
+        msg += String(auth[j].TT) + " °C\n";
+        bot->sendMessage(auth[j].id, msg, "");
+        bot->sendMessage(auth[j].id, SState(), "");  //send status
+        play(notes_alarm);
+      }
+    }
+    if (auth[j].RHD == 2) {
+      if (auth[j].RHT < humidity[1]) {
+        auth[j].RHD = 0;
+        //          EEPROM.write(100 + (42 * j) + 26, 0);
+        //          EEPROM.commit();
+        msg = "The Humidity reached:\n";
+        msg += String(auth[j].RHT) + " RH%\n";
+        bot->sendMessage(auth[j].id, msg, "");
+        bot->sendMessage(auth[j].id, SState(), "");  //send status
+      }
+    }
+    if (auth[j].RHD == 1) {
+      if (auth[j].RHT > humidity[1]) {
+        auth[j].RHD = 0;
+        //          EEPROM.write(100 + (42 * j) + 26, 0);
+        //          EEPROM.commit();
+        msg = "The Humidity reached:\n";
+        msg += String(auth[j].RHT) + " RH%\n";
+        bot->sendMessage(auth[j].id, msg, "");
+        bot->sendMessage(auth[j].id, SState(), "");  //send status
+      }
+    }
+    if (auth[j].vinD == 2) {
+      if (auth[j].vinT < vin[1]) {
+        auth[j].vinD = 0;
+        //          EEPROM.write(100 + (42 * j) + 36, 0);
+        //          EEPROM.commit();
+        msg = "The Supply Voltage reached:\n";
+        msg += String(auth[j].vinT) + " mV\n";
+        bot->sendMessage(auth[j].id, msg, "");
+        bot->sendMessage(auth[j].id, SState(), "");  //send status
+      }
+    }
+    if (auth[j].vinD == 1) {
+      if (auth[j].vinT > vin[1]) {
+        auth[j].vinD = 0;
+        //          EEPROM.write(100 + (42 * j) + 36, 0);
+        //          EEPROM.commit();
+        msg = "The Supply Voltage reached:\n";
+        msg += String(auth[j].vinT) + " mV\n";
+        bot->sendMessage(auth[j].id, msg, "");
+        bot->sendMessage(auth[j].id, SState(), "");  //send status
+      }
+    }
+  }
+  return msg;
+}
+
+
+
